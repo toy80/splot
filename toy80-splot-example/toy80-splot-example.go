@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/toy80/toy/utils/splot"
+	"github.com/toy80/splot"
 )
 
 func normalize3(v [3]float32) [3]float32 {
