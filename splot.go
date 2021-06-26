@@ -140,17 +140,29 @@ type Plot struct {
 	title string
 	prims []primitive
 	dummy primitive
+	start bool
 }
 
 func (p *Plot) last() *primitive {
-	if len(p.prims) == 0 {
+	if len(p.prims) == 0 || p.start {
 		return &p.dummy
 	}
 	return &p.prims[len(p.prims)-1]
 }
 
+func (p *Plot) break_() *primitive {
+	if p.start || len(p.prims) == 0 {
+		return &p.dummy
+	}
+	last := p.last()
+	p.start = true
+	p.dummy = *last
+	return &p.dummy
+}
+
 func (p *Plot) new() *primitive {
 	last := p.last()
+	p.start = false
 	p.prims = append(p.prims, *last)
 	cur := &p.prims[len(p.prims)-1]
 	cur.text = ""
@@ -163,12 +175,27 @@ func (p *Plot) Title(s string) *Plot {
 	return p
 }
 
+func (p *Plot) Break() *Plot {
+	p.break_()
+	return p
+}
+
 func (p *Plot) CurPos() Vec3 {
 	last := p.last()
 	if last.isPoint {
 		return last.p0
 	}
 	return last.p1
+}
+
+func (p *Plot) MoveTo(pt Vec3) *Plot {
+	last := p.break_()
+	if last.isPoint {
+		last.p0 = pt
+	} else {
+		last.p1 = pt
+	}
+	return p
 }
 
 func (p *Plot) Point(pt Vec3) *Plot {
@@ -181,6 +208,10 @@ func (p *Plot) Line(pt0, pt1 Vec3) *Plot {
 	v := p.new()
 	v.p0, v.p1, v.isPoint = pt0, pt1, false
 	return p
+}
+
+func (p *Plot) LineTo(pt Vec3) *Plot {
+	return p.Line(p.CurPos(), pt)
 }
 
 func (p *Plot) Vector(pt0, dir Vec3) *Plot {

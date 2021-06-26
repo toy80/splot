@@ -56,6 +56,8 @@ func main() {
 	plot.Line([3]float32{}, axis).Color("purple").Text("axis").NoHead().Width(2)
 
 	plot.Line([3]float32{}, normalize3(v0)).Color("black").Text("v0").FilledHead().Width(2)
+	v1 := rotate(q, normalize3(v0))
+	plot.Line([3]float32{}, v1).Color("black").Text("v1").FilledHead().Width(2)
 
 	// geneate the trajectory by construct searial of quaternions
 
@@ -66,14 +68,15 @@ func main() {
 		n = 1
 	}
 	da := maxAngle / float64(n)
-	for i := 0; i < n; i++ {
-		q1 := quaterion([3]float32{q[0], q[1], q[2]}, float32(da)*float32(i+1))
+	for i := 0; i <= n; i++ {
+		q1 := quaterion([3]float32{q[0], q[1], q[2]}, float32(da)*float32(i))
 		v := rotate(q1, normalize3(v0))
-		plot.Line(plot.CurPos(), v).Color("red").NoHead()
+		if i == 0 {
+			plot.MoveTo(v).Color("red").NoHead()
+		} else {
+			plot.LineTo(v)
+		}
 	}
-
-	v1 := rotate(q, normalize3(v0))
-	plot.Line([3]float32{}, v1).Color("black").Text("v1").FilledHead().Width(2)
 
 	plot.WriteFile("quaternion.plt") // the file can be open with a gnuplot viewer
 }
