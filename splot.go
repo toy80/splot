@@ -32,42 +32,99 @@ func StdColor(idx int) string {
 	return colorTable[idx%len(colorTable)]
 }
 
-func Abs(x float32) float32 {
+func abs(x float32) float32 {
 	return float32(math.Abs(float64(x)))
+}
+
+func sqrt(x float32) float32 {
+	return float32(math.Sqrt(float64(x)))
 }
 
 // Vec3 is 3D vector
 type Vec3 = [3]float32
 
-func Normalize(v Vec3) Vec3 {
+func normalize(v Vec3) Vec3 {
 	a2 := v[0]*v[0] + v[1]*v[1] + v[2]*v[2]
 	if a2 <= math.SmallestNonzeroFloat32*math.SmallestNonzeroFloat32 {
 		return Vec3{1, 0, 0}
 	}
-	a := float32(math.Sqrt(float64(a2)))
+	a := sqrt(a2)
 	return Vec3{v[0] / a, v[1] / a, v[2] / a}
 }
 
-func Dot(a, b [3]float32) float32 {
+func dot(a, b [3]float32) float32 {
 	return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
 }
 
-func Cross(a, b [3]float32) [3]float32 {
+func cross(a, b [3]float32) [3]float32 {
 	return [3]float32{a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]}
 }
 
-func Length(v [3]float32) float32 {
+func length(v [3]float32) float32 {
 	return v[0]*v[0] + v[1]*v[1] + v[2]*v[2]
 }
 
-type mat3 = [3][3]float32
+type mat3 [3][3]float32
 
-func mat3MulVec3(m mat3, a [3]float32) (b [3]float32) {
+func (m mat3) MulVec3(a [3]float32) (b [3]float32) {
 	b[0] = a[0]*m[0][0] + a[1]*m[1][0] + a[2]*m[2][0]
 	b[1] = a[0]*m[0][1] + a[1]*m[1][1] + a[2]*m[2][1]
 	b[2] = a[0]*m[0][2] + a[1]*m[1][2] + a[2]*m[2][2]
 	return
 }
+
+type quat [4]float32 // quaternion
+
+func quatRotateAtoB(a, b Vec3) (q quat) {
+	d := dot(a, b)
+	w := sqrt((1 + d) * 0.5)
+	if w == 0 {
+		d1 := dot(a, [3]float32{1, 0, 0})
+		var c Vec3
+		if abs(d1) < 0.9 {
+			c = normalize(cross(a, Vec3{1, 0, 0}))
+		} else {
+			c = normalize(cross(a, Vec3{0, 1, 0}))
+		}
+		return [4]float32{c[0], c[1], c[2], 0}
+	}
+	c := cross(a, b)
+	return [4]float32{c[0] / (w * 2), c[1] / (w * 2), c[2] / (w * 2), w}
+}
+
+func (q quat) MulVec3(v [3]float32) [3]float32 {
+	a := [3]float32{q[0], q[1], q[2]}
+	t := cross(a, v)
+	t[0], t[1], t[2] = t[0]*2, t[1]*2, t[2]*2
+	s := [3]float32{t[0] * q[3], t[1] * q[3], t[2] * q[3]}
+	u := cross(a, t)
+	return [3]float32{v[0] + s[0] + u[0], v[1] + s[1] + u[1], v[2] + s[2] + u[2]}
+}
+
+type transform interface {
+	MulVec3([3]float32) [3]float32
+}
+
+// func mat3ToQuat(a mat3) (q quat) {
+// 	m00, m01, m02 := a[0][0], a[1][0], a[2][0]
+// 	m10, m11, m12 := a[0][1], a[1][1], a[2][1]
+// 	m20, m21, m22 := a[0][2], a[1][2], a[2][2]
+// 	tr := m00 + m11 + m22
+// 	if tr > 0 {
+// 		s := sqrt(tr+1.0) * 2
+// 		q = quat{(m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s, 0.25 * s}
+// 	} else if (m00 > m11) && (m00 > m22) {
+// 		s := sqrt(1.0+m00-m11-m22) * 2
+// 		q = quat{0.25 * s, (m01 + m10) / s, (m02 + m20) / s, (m21 - m12) / s}
+// 	} else if m11 > m22 {
+// 		s := sqrt(1.0+m11-m00-m22) * 2
+// 		q = quat{(m01 + m10) / s, 0.25 * s, (m12 + m21) / s, (m02 - m20) / s}
+// 	} else {
+// 		s := sqrt(1.0+m22-m00-m11) * 2
+// 		q = quat{(m02 + m20) / s, (m12 + m21) / s, 0.25 * s, (m10 - m01) / s}
+// 	}
+// 	return
+// }
 
 type style struct {
 	color     string
@@ -235,27 +292,27 @@ func (p *Plot) Vector(pt0, dir Vec3) *Plot {
 }
 
 func (p *Plot) Circle(center, normal Vec3, radius float32) *Plot {
-	return p.Arc(center, normal, radius, 0, math.Pi*2)
+	return p.Arc(center, normal, radius, Vec3{}, 0, math.Pi*2)
 }
 
-func (p *Plot) Arc(center, normal Vec3, radius, angle0, angle1 float32) *Plot {
+func (p *Plot) Arc(center, normal Vec3, radius float32, refZeroDir Vec3, angle0, angle1 float32) *Plot {
 	a0, a1 := angle0, angle1
 	if a0 == a1 {
 		return p
 	}
 
-	normal = Normalize(normal)
-	var tangent, bitangent Vec3
-	tangent = Vec3{1, 0, 0}
-	if Abs(Dot(normal, tangent)) < 0.9 {
-		bitangent = Normalize(Cross(normal, tangent))
-		tangent = Normalize(Cross(bitangent, normal))
+	normal = normalize(normal)
+
+	var tf transform
+	if refZeroDir == (Vec3{}) {
+		// angle 0° is unkown, perform simple rotation
+		tf = quatRotateAtoB([3]float32{0, 0, 1}, normal)
 	} else {
-		bitangent = Vec3{0, 1, 0}
-		tangent = Normalize(Cross(bitangent, normal))
-		bitangent = Normalize(Cross(normal, tangent))
+		var tangent, bitangent Vec3
+		bitangent = normalize(cross(normal, refZeroDir))
+		tangent = normalize(cross(bitangent, normal))
+		tf = mat3{tangent, bitangent, normal}
 	}
-	rot := mat3{tangent, bitangent, normal}
 
 	// estimate angle step delta
 	const numSegmentsFullCircle = 60
@@ -276,7 +333,7 @@ func (p *Plot) Arc(center, normal Vec3, radius, angle0, angle1 float32) *Plot {
 	for a, i := a0, 0; i <= n; i++ {
 		sinA, cosA := math.Sincos(float64(a))
 		v := Vec3{radius * float32(cosA), radius * float32(sinA), 0}
-		v = mat3MulVec3(rot, v)
+		v = tf.MulVec3(v)
 		pt := Vec3{center[0] + v[0], center[1] + v[1], center[2] + v[2]}
 		if i == 0 {
 			p.MoveTo(pt)
