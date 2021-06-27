@@ -32,14 +32,14 @@ func StdColor(idx int) string {
 	return colorTable[idx%len(colorTable)]
 }
 
-func abs(x float32) float32 {
+func Abs(x float32) float32 {
 	return float32(math.Abs(float64(x)))
 }
 
 // Vec3 is 3D vector
 type Vec3 = [3]float32
 
-func normalize(v Vec3) Vec3 {
+func Normalize(v Vec3) Vec3 {
 	a2 := v[0]*v[0] + v[1]*v[1] + v[2]*v[2]
 	if a2 <= math.SmallestNonzeroFloat32*math.SmallestNonzeroFloat32 {
 		return Vec3{1, 0, 0}
@@ -48,10 +48,16 @@ func normalize(v Vec3) Vec3 {
 	return Vec3{v[0] / a, v[1] / a, v[2] / a}
 }
 
-func dot(v, b Vec3) float32 { return v[0]*b[0] + v[1]*b[1] + v[2]*b[2] }
+func Dot(a, b [3]float32) float32 {
+	return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+}
 
-func cross(v, b Vec3) Vec3 {
-	return Vec3{v[1]*b[2] - v[2]*b[1], v[2]*b[0] - v[0]*b[2], v[0]*b[1] - v[1]*b[0]}
+func Cross(a, b [3]float32) [3]float32 {
+	return [3]float32{a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]}
+}
+
+func Length(v [3]float32) float32 {
+	return v[0]*v[0] + v[1]*v[1] + v[2]*v[2]
 }
 
 type mat3 = [3][3]float32
@@ -125,15 +131,22 @@ func (p *primitive) dir() Vec3 {
 	return Vec3{p.p1[0] - p.p0[0], p.p1[1] - p.p0[1], p.p1[2] - p.p0[2]}
 }
 
-func (p *primitive) mid() Vec3 {
+func (p *primitive) smartLabelPos() (pt Vec3) {
 	if p.isPoint {
-		return p.p0
+		pt = p.p0
+	} else {
+		f0, _ := math.Frexp(float64(p.p1[0]))
+		f1, _ := math.Frexp(float64(p.p1[1]))
+		f2, _ := math.Frexp(float64(p.p1[2]))
+
+		f := 1.0 - float32(math.Abs(f0)+math.Abs(f1)+math.Abs(f2))/3 // (0, 1]
+		f = 0.6 + 0.3*f                                              // (0.6, 0.9]
+		pt = Vec3{
+			p.p0[0] + (p.p1[0]-p.p0[0])*f,
+			p.p0[1] + (p.p1[1]-p.p0[1])*f,
+			p.p0[2] + (p.p1[2]-p.p0[2])*f}
 	}
-	return Vec3{
-		(p.p1[0] + p.p0[0]) * 0.5,
-		(p.p1[1] + p.p0[1]) * 0.5,
-		(p.p1[2] + p.p0[2]) * 0.5,
-	}
+	return
 }
 
 type Plot struct {
@@ -221,38 +234,58 @@ func (p *Plot) Vector(pt0, dir Vec3) *Plot {
 	return p
 }
 
-func (p *Plot) MakeCircle(center, normal Vec3, radius float32, color string) {
-	normal = normalize(normal)
+func (p *Plot) Circle(center, normal Vec3, radius float32) *Plot {
+	return p.Arc(center, normal, radius, 0, math.Pi*2)
+}
+
+func (p *Plot) Arc(center, normal Vec3, radius, angle0, angle1 float32) *Plot {
+	a0, a1 := angle0, angle1
+	if a0 == a1 {
+		return p
+	}
+
+	normal = Normalize(normal)
 	var tangent, bitangent Vec3
 	tangent = Vec3{1, 0, 0}
-	if abs(dot(normal, tangent)) < 0.9 {
-		bitangent = normalize(cross(normal, tangent))
-		tangent = normalize(cross(bitangent, normal))
+	if Abs(Dot(normal, tangent)) < 0.9 {
+		bitangent = Normalize(Cross(normal, tangent))
+		tangent = Normalize(Cross(bitangent, normal))
 	} else {
 		bitangent = Vec3{0, 1, 0}
-		tangent = normalize(cross(bitangent, normal))
-		bitangent = normalize(cross(normal, tangent))
+		tangent = Normalize(Cross(bitangent, normal))
+		bitangent = Normalize(Cross(normal, tangent))
 	}
 	rot := mat3{tangent, bitangent, normal}
 
-	const N = 50
-	delta := float32(2 * math.Pi / N)
-	a := float32(0)
-	var pts []Vec3
-	for i := 0; i < N; i++ {
+	// estimate angle step delta
+	const numSegmentsFullCircle = 60
+
+	// if a0 > a1 {
+	// 	a0, a1 = a1, a0 don't swap, because direction matters
+	// }
+
+	da0 := float32(2 * math.Pi / numSegmentsFullCircle)
+	n := int((a1 - a0) / da0)
+	if n == 0 {
+		n = 1
+	} else if n < 0 {
+		n = -n
+	}
+
+	da := (a1 - a0) / float32(n)
+	for a, i := a0, 0; i <= n; i++ {
 		sinA, cosA := math.Sincos(float64(a))
 		v := Vec3{radius * float32(cosA), radius * float32(sinA), 0}
 		v = mat3MulVec3(rot, v)
 		pt := Vec3{center[0] + v[0], center[1] + v[1], center[2] + v[2]}
-		pts = append(pts, pt)
-		a += delta
-	}
-	for i, j := N-1, 0; j < N; i, j = j, j+1 {
-		p.Line(pts[i], pts[j])
-		if j == 0 {
-			p.NoHead().Color(color)
+		if i == 0 {
+			p.MoveTo(pt)
+		} else {
+			p.LineTo(pt)
 		}
+		a += da
 	}
+	return p
 }
 
 func (p *Plot) LineDir(pt0, pt1 Vec3) *Plot {
@@ -281,8 +314,8 @@ func (p *Plot) NoHead() *Plot {
 	return p
 }
 
-func (p *Plot) Text(text string) *Plot {
-	p.last().text = text
+func (p *Plot) Text(v ...interface{}) *Plot {
+	p.last().text = fmt.Sprint(v...)
 	return p
 }
 
@@ -303,6 +336,7 @@ func (p *Plot) StdColor(idx int) *Plot {
 	return p
 }
 
+// Width set the line width and point size
 func (p *Plot) Width(w int) *Plot {
 	if w < 1 {
 		w = 1
@@ -322,7 +356,8 @@ func (p *Plot) foreachPrim(s style, do func(*primitive)) {
 	}
 }
 
-func (p *Plot) WriteFile(filename string) (err error) {
+// Write into gnuplot file
+func (p *Plot) Write(filename string) (err error) {
 	f, err := os.Create(filename)
 	if err != nil {
 		return
@@ -335,18 +370,19 @@ func (p *Plot) WriteFile(filename string) (err error) {
 		}
 	}()
 
-	err = p.Out(f)
+	err = p.Encode(f)
 	return
 }
 
-func (p *Plot) Out(f io.Writer) (err error) {
+// Encode gunplot format into writer w
+func (p *Plot) Encode(w io.Writer) (err error) {
 
 	// write common properties
 	if p.title != "" {
-		fmt.Fprintf(f, "set title %q\n", p.title)
+		fmt.Fprintf(w, "set title %q\n", p.title)
 	}
-	fmt.Fprintln(f, `set view equal xyz`)
-	fmt.Fprintln(f, `unset key`)
+	fmt.Fprintln(w, `set view equal xyz`)
+	fmt.Fprintln(w, `unset key`)
 	if len(p.prims) == 0 {
 		return
 	}
@@ -369,6 +405,10 @@ func (p *Plot) Out(f io.Writer) (err error) {
 	sort.Slice(styleList, func(i, j int) bool {
 		return styleList[i].key < styleList[j].key
 	})
+	styleMap := make(map[string]*style)
+	for i, style := range styleList {
+		styleMap[style.key] = &styleList[i]
+	}
 
 	// generate palette
 	colorMap := make(map[string]int)
@@ -397,23 +437,25 @@ func (p *Plot) Out(f io.Writer) (err error) {
 	})
 
 	// write palete
-	fmt.Fprintf(f, "set palette model RGB maxcolors %d\n", len(colorList))
-	fmt.Fprint(f, `set palette defined (`)
+	fmt.Fprintf(w, "set palette model RGB maxcolors %d\n", len(colorList))
+	fmt.Fprint(w, `set palette defined (`)
 	for i, c := range colorList {
 		if i > 0 {
-			fmt.Fprint(f, `, `)
+			fmt.Fprint(w, `, `)
 		}
-		fmt.Fprintf(f, "%d %q", c.value, c.color)
+		fmt.Fprintf(w, "%d %q", c.value, c.color)
 	}
-	fmt.Fprintln(f, `)`)
-	fmt.Fprintln(f, `# sets the range of palette values`)
-	fmt.Fprintf(f, "set cbrange [-0.5:%.1f]\n", float32(len(colorList))-0.5)
-	fmt.Fprintln(f)
+	fmt.Fprintln(w, `)`)
+	fmt.Fprintln(w, `# sets the range of palette values`)
+	fmt.Fprintf(w, "set cbrange [-0.5:%.1f]\n", float32(len(colorList))-0.5)
+	fmt.Fprintln(w)
 
 	// separator use in data table
 	sep := " "
+
 	for i := range p.prims {
 		p.prims[i].text = strings.ReplaceAll(p.prims[i].text, sep, "-")
+		p.prims[i].cv = styleMap[p.prims[i].key].cv
 	}
 
 	// there are actually multiple plots:
@@ -423,57 +465,57 @@ func (p *Plot) Out(f io.Writer) (err error) {
 	for _, style := range styleList {
 		if first {
 			first = false
-			fmt.Fprint(f, `splot "-" `)
+			fmt.Fprint(w, `splot "-" `)
 		} else {
-			fmt.Fprint(f, " \\\n  , \"\" ")
+			fmt.Fprint(w, " \\\n  , \"\" ")
 		}
 		if style.isPoint {
 			// draw point
-			fmt.Fprintf(f, `using 1:2:3:4 with points %s pointsize %d palette`, style.pointAttr, style.width)
+			fmt.Fprintf(w, `using 1:2:3:4 with points %s pointsize %d palette`, style.pointAttr, style.width)
 		} else {
 			// draw vector/line
-			fmt.Fprintf(f, ` using 1:2:3:4:5:6:7 with vectors %s linewidth %d palette`, style.lineAttr, style.width)
+			fmt.Fprintf(w, ` using 1:2:3:4:5:6:7 with vectors %s linewidth %d palette`, style.lineAttr, style.width)
 
 		}
 	}
 	// draw label text
-	fmt.Fprintf(f, ` , "" using 1:2:3:4 with labels`)
+	fmt.Fprintf(w, ` , "" using 1:2:3:4:5 with labels left textcolor palette offset char 1,char 1`)
 
-	fmt.Fprintln(f) // separate between gnuplot command an data tables
+	fmt.Fprintln(w) // separate between gnuplot command an data tables
 
 	for _, style := range styleList {
 		if style.isPoint {
 			// point data
 			p.foreachPrim(style, func(v *primitive) {
-				fmt.Fprint(f, v.p0[0], sep, v.p0[1], sep, v.p0[2], sep, style.cv)
-				fmt.Fprintln(f)
+				fmt.Fprint(w, v.p0[0], sep, v.p0[1], sep, v.p0[2], sep, style.cv)
+				fmt.Fprintln(w)
 			})
 
-			fmt.Fprintln(f, "e") // separate between data tables
+			fmt.Fprintln(w, "e") // separate between data tables
 
 		} else {
 			// vector/line data
 			p.foreachPrim(style, func(v *primitive) {
 				d := v.dir()
-				fmt.Fprint(f, v.p0[0], sep, v.p0[1], sep, v.p0[2], sep, d[0], sep, d[1], sep, d[2], sep, style.cv)
-				fmt.Fprintln(f)
+				fmt.Fprint(w, v.p0[0], sep, v.p0[1], sep, v.p0[2], sep, d[0], sep, d[1], sep, d[2], sep, style.cv)
+				fmt.Fprintln(w)
 			})
 
-			fmt.Fprintln(f, "e") // separate between data tables
+			fmt.Fprintln(w, "e") // separate between data tables
 		}
 	}
 	// point label data
 	for _, v := range p.prims {
 		if v.text != "" {
-			pt := v.mid()
-			fmt.Fprint(f, pt[0], sep, pt[1], sep, pt[2], sep, v.text)
-			fmt.Fprintln(f)
+			pt := v.smartLabelPos()
+			fmt.Fprint(w, pt[0], sep, pt[1], sep, pt[2], sep, v.text, sep, v.style.cv)
+			fmt.Fprintln(w)
 		}
 	}
-	fmt.Fprintln(f, "e")
+	fmt.Fprintln(w, "e")
 
 	// allow ineractive op
-	fmt.Fprintln(f, "pause mouse keypress")
+	fmt.Fprintln(w, "pause mouse keypress")
 
 	return
 }
