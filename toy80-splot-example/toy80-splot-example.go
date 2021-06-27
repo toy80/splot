@@ -106,5 +106,5 @@ func main() {
 		}
 	}
 
-	plot.Write("quaternion.plt") // the file can be open with a gnuplot viewer
+	plot.WriteFile("quaternion.plt") // the file can be open with a gnuplot viewer
 }

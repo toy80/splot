@@ -356,8 +356,8 @@ func (p *Plot) foreachPrim(s style, do func(*primitive)) {
 	}
 }
 
-// Write into gnuplot file
-func (p *Plot) Write(filename string) (err error) {
+// WriteFile output gnuplot file
+func (p *Plot) WriteFile(filename string) (err error) {
 	f, err := os.Create(filename)
 	if err != nil {
 		return
